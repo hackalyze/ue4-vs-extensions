@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SerializableSnippets xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <commands />
+  <extensions>
+    <Snippet>
+      <id>1</id>
+      <name>UE4 Smarter Macro Indenting</name>
+      <code>
+using EnvDTE;
+using EnvDTE80;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+public class E : VisualCommanderExt.IExtension
+{
+    private EnvDTE80.DTE2 _DTE;
+    private EnvDTE80.TextDocumentKeyPressEvents _textDocumentKeyPressEvents;
+    private static readonly string MACRO_REGEX = @"(?&lt;leading_whitespace&gt;[\s]*)(UPROPERTY|UFUNCTION|GENERATED_(USTRUCT_|UCLASS_|(U|I)INTERFACE_)?BODY)\(.*";
+
+    public void SetSite(DTE2 DTE, Microsoft.VisualStudio.Shell.Package package) {
+        _DTE = DTE;
+        EnvDTE80.Events2 events2 = (EnvDTE80.Events2)DTE.Events;
+        _textDocumentKeyPressEvents = events2.get_TextDocumentKeyPressEvents(null);
+        _textDocumentKeyPressEvents.AfterKeyPress += AfterKeyPress;
+    }
+
+    public void Close() {
+        _textDocumentKeyPressEvents.AfterKeyPress -= AfterKeyPress;
+    }
+
+    public void AfterKeyPress(string key, TextSelection sel, bool completion) {
+        // Only semicolons or carriage returns should cause an indentation that need to be fixed
+        if (key != ";" &amp;&amp; key != "\r") {
+            return;
+        }
+        // Make sure we're using smart indent
+        EnvDTE.Properties textEditorC = _DTE.get_Properties("TextEditor", "C/C++");
+        if ((int)textEditorC.Item("IndentStyle").Value != 2) {
+            return;
+        }
+
+        var doc = _DTE.ActiveDocument;
+        var editPoint = sel.ActivePoint.CreateEditPoint();
+        string macroLine = null;
+        var macroLineNum = sel.ActivePoint.Line;
+        // Search up the document from our current line until we find a line with text on it
+        // so we can then determine if this line contains a macro we care about
+        var found = false;
+        while (--macroLineNum >= 1) {
+            macroLine = editPoint.GetLines(macroLineNum, macroLineNum + 1);
+            if (!Regex.IsMatch(macroLine, @"\S+")) {
+                continue;
+            }
+            found = true;
+            break;
+        }
+        if (!found) {
+            return;
+        }
+        var macroMatch = Regex.Match(macroLine, MACRO_REGEX);
+        if (macroMatch.Success) {
+            // Goto and select our current line, can't do this in a single GotoLine call for some reason
+            sel.GotoLine(sel.ActivePoint.Line, false);
+            sel.SelectLine();
+            if (Regex.IsMatch(sel.Text, @"\S+")) {
+                // If the line below the macro has text, undo the indent it just did
+                doc.Undo();
+            } else {
+                // If the line below the macro is empty, add matching whitespace to the beginning of this line to match it up with the macro
+                sel.MoveToPoint(editPoint);
+                sel.DeleteWhitespace(EnvDTE.vsWhitespaceOptions.vsWhitespaceOptionsHorizontal);
+                sel.Insert(macroMatch.Groups["leading_whitespace"].ToString());
+            }
+        }
+    }
+}</code>
+      <referencedAssemblies />
+      <type>Extension</type>
+      <lang>CS</lang>
+      <langVersion>v4.0</langVersion>
+      <enabled>false</enabled>
+    </Snippet>
+  </extensions>
+  <commonCode />
+</SerializableSnippets>

@@ -18,6 +18,7 @@ public class E : VisualCommanderExt.IExtension
     private EnvDTE80.DTE2 _DTE;
     private EnvDTE80.TextDocumentKeyPressEvents _textDocumentKeyPressEvents;
     private static readonly string MACRO_REGEX = @"(?&lt;leading_whitespace&gt;[\s]*)(UPROPERTY|UFUNCTION|GENERATED_(USTRUCT_|UCLASS_|(U|I)INTERFACE_)?BODY)\(.*";
+    private static readonly string TEXT_WITH_WS_REGEX = @"(?&lt;leading_whitespace&gt;[\s]*)\S*";
 
     private CommandEvents _pasteEvent;
     private string _beforeText;
@@ -59,16 +60,13 @@ public class E : VisualCommanderExt.IExtension
         string[] beforeLines = _beforeText.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
         string[] afterLines = afterText.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
         int pasteLength = (afterLines.Length - beforeLines.Length) + _numSelectedLines;
-        if (pasteLength == 0) {
-            return;
-        }
         TextSelection sel = (TextSelection)_DTE.ActiveDocument.Selection;
         var editPoint = sel.ActivePoint.CreateEditPoint();
         bool underMacro = false;
         string lastWhiteSpace = "";
         bool openedUndoContext = false;
         int startPasteLine = sel.ActivePoint.Line - pasteLength;
-        int macroLineNum = startPasteLine;
+        int macroLineNum = startPasteLine + 1;
         // Search up the document from the start of our paste until we find a line with text on it
         // so we can then determine if this line contains a macro we care about
         while (--macroLineNum &gt;= 1) {
@@ -93,14 +91,14 @@ public class E : VisualCommanderExt.IExtension
             for (int onLine = startPasteLine; onLine &lt; afterLines.Length; onLine++) {
                 var line = afterLines[onLine];
                 // We only need to potentially fix the newly pasted lines
-                if (onLine &gt; startPasteLine + pasteLength) {
+                if (onLine &gt;= startPasteLine + pasteLength) {
                     sel.GotoLine(onLine, false);
                     sel.MoveToPoint(editPoint);
                     break;
                 }
                 if (underMacro) {
-                    var varMatch = Regex.Match(line, @"\S+");
-                    if (varMatch.Success) {
+                    var varMatch = Regex.Match(line, TEXT_WITH_WS_REGEX);
+                    if (varMatch.Success &amp;&amp; varMatch.Groups["leading_whitespace"].ToString() != lastWhiteSpace) {
                         sel.GotoLine(onLine + 1, false);
                         sel.DeleteWhitespace(EnvDTE.vsWhitespaceOptions.vsWhitespaceOptionsHorizontal);
                         sel.Insert(lastWhiteSpace);

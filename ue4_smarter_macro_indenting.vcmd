@@ -52,6 +52,18 @@ public class E : VisualCommanderExt.IExtension
     }
 
     private void AfterPaste(string Guid, int ID, Object CustomIn, Object CustomOut) {
+        string afterText = GetActiveDocumentText();
+        string[] beforeLines = _beforeText.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
+        string[] afterLines = afterText.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
+        int pasteLength = afterLines.Length - beforeLines.Length;
+        if (pasteLength == 0) {
+            return;
+        }
+        TextSelection sel = (TextSelection)_DTE.ActiveDocument.Selection;
+        var editPoint = sel.ActivePoint.CreateEditPoint();
+        bool underMacro = false;
+        bool onChangedText = false;
+        string lastWhiteSpace = "";
         bool openedUndoContext = false;
         if (!_DTE.UndoContext.IsOpen) {
             openedUndoContext = true;
@@ -59,15 +71,6 @@ public class E : VisualCommanderExt.IExtension
             _DTE.UndoContext.Open("FixUE4MacroIndents", false);
         }
         try {
-            string afterText = GetActiveDocumentText();
-            string[] beforeLines = _beforeText.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
-            string[] afterLines = afterText.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
-            TextSelection sel = (TextSelection)_DTE.ActiveDocument.Selection;
-            bool underMacro = false;
-            bool onChangedText = false;
-            string lastWhiteSpace = "";
-            int pasteLength = afterLines.Length - beforeLines.Length;
-
             for (int onLine = 0; onLine &lt; afterLines.Length; onLine++) {
                 var line = afterLines[onLine];
                 if (!onChangedText) {
@@ -80,7 +83,7 @@ public class E : VisualCommanderExt.IExtension
                 // We only need to potentially fix the newly pasted lines
                 if (pasteLength &lt; 0) {
                     sel.GotoLine(onLine, false);
-                    sel.EndOfLine();
+                    sel.MoveToPoint(editPoint);
                     break;
                 }
                 if (onChangedText) {

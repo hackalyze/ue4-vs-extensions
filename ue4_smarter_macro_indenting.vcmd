@@ -21,6 +21,7 @@ public class E : VisualCommanderExt.IExtension
 
     private CommandEvents _pasteEvent;
     private string _beforeText;
+    private int _numSelectedLines;
 
     public void SetSite(DTE2 DTE, Microsoft.VisualStudio.Shell.Package package) {
         _DTE = DTE;
@@ -49,55 +50,63 @@ public class E : VisualCommanderExt.IExtension
 
     private void BeforePaste(string Guid, int ID, Object CustomIn, Object CustomOut, ref bool CancelDefault) {
         _beforeText = GetActiveDocumentText();
+        TextSelection sel = (TextSelection)_DTE.ActiveDocument.Selection;
+        _numSelectedLines = sel.Text.Split(new string[] { Environment.NewLine }, StringSplitOptions.None).Length;
     }
 
     private void AfterPaste(string Guid, int ID, Object CustomIn, Object CustomOut) {
         string afterText = GetActiveDocumentText();
         string[] beforeLines = _beforeText.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
         string[] afterLines = afterText.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
-        int pasteLength = afterLines.Length - beforeLines.Length;
+        int pasteLength = (afterLines.Length - beforeLines.Length) + _numSelectedLines;
         if (pasteLength == 0) {
             return;
         }
         TextSelection sel = (TextSelection)_DTE.ActiveDocument.Selection;
         var editPoint = sel.ActivePoint.CreateEditPoint();
         bool underMacro = false;
-        bool onChangedText = false;
         string lastWhiteSpace = "";
         bool openedUndoContext = false;
+        int startPasteLine = sel.ActivePoint.Line - pasteLength;
+        int macroLineNum = startPasteLine;
+        // Search up the document from the start of our paste until we find a line with text on it
+        // so we can then determine if this line contains a macro we care about
+        while (--macroLineNum &gt;= 1) {
+            string macroLine = editPoint.GetLines(macroLineNum, macroLineNum + 1);
+            if (!Regex.IsMatch(macroLine, @"\S+")) {
+                continue;
+            }
+            var macroMatch = Regex.Match(macroLine, MACRO_REGEX);
+            if (macroMatch.Success) {
+                underMacro = true;
+                lastWhiteSpace = macroMatch.Groups["leading_whitespace"].ToString();
+            }
+            break;
+        }
+
         if (!_DTE.UndoContext.IsOpen) {
             openedUndoContext = true;
             // Open the UndoContext so all of our changes can be undone with a single undo
             _DTE.UndoContext.Open("FixUE4MacroIndents", false);
         }
         try {
-            for (int onLine = 0; onLine &lt; afterLines.Length; onLine++) {
+            for (int onLine = startPasteLine; onLine &lt; afterLines.Length; onLine++) {
                 var line = afterLines[onLine];
-                if (!onChangedText) {
-                    // Iterate through all the lines of text of the active document until we find
-                    // the first changed line of the paste
-                    if (line != beforeLines[onLine]) {
-                        onChangedText = true;
-                    }
-                }
                 // We only need to potentially fix the newly pasted lines
-                if (pasteLength &lt; 0) {
+                if (onLine &gt; startPasteLine + pasteLength) {
                     sel.GotoLine(onLine, false);
                     sel.MoveToPoint(editPoint);
                     break;
                 }
-                if (onChangedText) {
-                    pasteLength -= 1;
-                    if (underMacro) {
-                        var varMatch = Regex.Match(line, @"\S+");
-                        if (varMatch.Success) {
-                            sel.GotoLine(onLine + 1, false);
-                            sel.DeleteWhitespace(EnvDTE.vsWhitespaceOptions.vsWhitespaceOptionsHorizontal);
-                            sel.Insert(lastWhiteSpace);
-                            underMacro = false;
-                            // This line has been modified, so change it for the MACRO_REGEX matching below
-                            line = lastWhiteSpace + line.Trim();
-                        }
+                if (underMacro) {
+                    var varMatch = Regex.Match(line, @"\S+");
+                    if (varMatch.Success) {
+                        sel.GotoLine(onLine + 1, false);
+                        sel.DeleteWhitespace(EnvDTE.vsWhitespaceOptions.vsWhitespaceOptionsHorizontal);
+                        sel.Insert(lastWhiteSpace);
+                        underMacro = false;
+                        // This line has been modified, so change it for the MACRO_REGEX matching below
+                        line = lastWhiteSpace + line.Trim();
                     }
                 }
                 // Its important to check if the current line is a macro

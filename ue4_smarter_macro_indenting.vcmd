@@ -17,7 +17,7 @@ public class E : VisualCommanderExt.IExtension
 {
     private EnvDTE80.DTE2 _DTE;
     private EnvDTE80.TextDocumentKeyPressEvents _textDocumentKeyPressEvents;
-    private static readonly string MACRO_REGEX = @"(?&lt;leading_whitespace&gt;[\s]*)(UPROPERTY|UFUNCTION|GENERATED_(USTRUCT_|UCLASS_|(U|I)INTERFACE_)?BODY)\(.*";
+    private static readonly string MACRO_REGEX = @"^(?&lt;leading_whitespace&gt;[\s]*)(UPROPERTY|UFUNCTION|GENERATED_(USTRUCT_|UCLASS_|(U|I)INTERFACE_)?BODY)\(.*";
     private static readonly string TEXT_WITH_WS_REGEX = @"(?&lt;leading_whitespace&gt;[\s]*)\S+";
 
     private CommandEvents _pasteEvent;
@@ -133,6 +133,13 @@ public class E : VisualCommanderExt.IExtension
         EnvDTE.Properties textEditorC = _DTE.get_Properties("TextEditor", "C/C++");
         if ((int)textEditorC.Item("IndentStyle").Value != 2) {
             return;
+        }
+        if (key == ";") {
+            // Make sure we're auto-formatting on semicolons
+            EnvDTE.Properties textEditorCSpecific = _DTE.get_Properties("TextEditor", "C/C++ Specific");
+            if (!(bool)textEditorCSpecific.Item("AutoFormatOnSemicolon").Value) {
+                return;
+            }
         }
 
         var doc = _DTE.ActiveDocument;

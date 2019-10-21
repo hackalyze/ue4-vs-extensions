@@ -17,7 +17,7 @@ public class E : VisualCommanderExt.IExtension
 {
     private EnvDTE80.DTE2 _DTE;
     private EnvDTE80.TextDocumentKeyPressEvents _textDocumentKeyPressEvents;
-    private static readonly string MACRO_REGEX = @"^(?&lt;leading_whitespace&gt;[\s]*)(UPROPERTY|UFUNCTION|GENERATED_(USTRUCT_|UCLASS_|(U|I)INTERFACE_)?BODY)\(.*";
+    private static readonly string MACRO_REGEX = @"^(?&lt;leading_whitespace&gt;[\s]*)(UPROPERTY|UFUNCTION|UE_LOG|GENERATED_(USTRUCT_|UCLASS_|(U|I)INTERFACE_)?BODY)\(.*";
     private static readonly string TEXT_WITH_WS_REGEX = @"(?&lt;leading_whitespace&gt;[\s]*)\S+";
 
     private CommandEvents _pasteEvent;

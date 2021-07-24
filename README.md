@@ -7,7 +7,6 @@ This extension was designed to fix the unnecessary and annoying "smart" indentin
 * GENERATED_USTRUCT_BODY
 * GENERATED_UINTERFACE_BODY
 * GENERATED_IINTERFACE_BODY
-* UE_LOG
 
 ### Demo
 | Before | After |

@@ -17,7 +17,7 @@ This extension was designed to fix the unnecessary and annoying "smart" indentin
 ### Installation
 
 1. Download and install the Visual Commander extension for Visual Studio from here: https://vlasovstudio.com/visual-commander/
-2. Go to VCmd -> Import and import ue4_smarter_macro_indenting.vcmd
+2. Go to VCmd -> Import and import the ue4_smarter_macro_indenting*.vcmd that corresponds to your version of visual studio.  For visual studio 2017/2019+, use ue4_smarter_macro_indenting_vs2017-2019.vcmd, for earlier versions use ue4_smarter_macro_indenting_vs2013-2015.vcmd.
 3. Go to VCmd -> Extensions to open the Extensions panel
 4. Check the "Enabled" checkbox for the "UE4 Fix Indent" extension.
 5. Make sure Indenting is set to "Smart" in Tools -> Options -> Text Editor -> C/C++ -> Tabs.

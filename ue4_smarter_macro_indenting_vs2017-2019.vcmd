@@ -1,0 +1,191 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<SerializableSnippets xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <commands />
+  <extensions>
+    <Snippet>
+      <id>1</id>
+      <name>UE4 Smarter Macro Indenting</name>
+      <code>
+using EnvDTE;
+using EnvDTE80;
+using Microsoft.VisualStudio;
+using System;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
+
+public class E : VisualCommanderExt.IExtension
+{
+    private EnvDTE80.DTE2 _DTE;
+    private EnvDTE80.TextDocumentKeyPressEvents _textDocumentKeyPressEvents;
+    private static readonly string MACRO_REGEX = @"^(?&lt;leading_whitespace&gt;[\s]*)(UPROPERTY|UFUNCTION|UE_LOG|GENERATED_(USTRUCT_|UCLASS_|(U|I)INTERFACE_)?BODY)\(.*";
+    private static readonly string TEXT_WITH_WS_REGEX = @"(?&lt;leading_whitespace&gt;[\s]*)\S+";
+
+    private CommandEvents _pasteEvent;
+    private string _beforeText;
+    private int _numSelectedLines;
+
+    public void SetSite(DTE2 DTE, Microsoft.VisualStudio.Shell.Package package) {
+        _DTE = DTE;
+        EnvDTE80.Events2 events2 = (EnvDTE80.Events2)DTE.Events;
+        _textDocumentKeyPressEvents = events2.get_TextDocumentKeyPressEvents(null);
+        _textDocumentKeyPressEvents.AfterKeyPress += AfterKeyPress;
+
+        var pasteGuid = typeof(VSConstants.VSStd97CmdID).GUID.ToString("B");
+        var pasteID = (int)VSConstants.VSStd97CmdID.Paste;
+        _pasteEvent = _DTE.Events.CommandEvents[pasteGuid, pasteID];
+        _pasteEvent.BeforeExecute += BeforePaste;
+        _pasteEvent.AfterExecute += AfterPaste;
+    }
+
+    public void Close() {
+        _textDocumentKeyPressEvents.AfterKeyPress -= AfterKeyPress;
+        _pasteEvent.AfterExecute -= AfterPaste;
+        _pasteEvent.BeforeExecute -= BeforePaste;
+    }
+
+    private string GetActiveDocumentText() {
+        TextDocument doc = (TextDocument)(_DTE.ActiveDocument.Object("TextDocument"));
+        var editPoint = doc.StartPoint.CreateEditPoint();
+        return editPoint.GetText(doc.EndPoint);
+    }
+
+    private void BeforePaste(string Guid, int ID, Object CustomIn, Object CustomOut, ref bool CancelDefault) {
+        _beforeText = GetActiveDocumentText();
+        TextSelection sel = (TextSelection)_DTE.ActiveDocument.Selection;
+        _numSelectedLines = sel.Text.Split(new string[] { Environment.NewLine }, StringSplitOptions.None).Length;
+    }
+
+    private void AfterPaste(string Guid, int ID, Object CustomIn, Object CustomOut) {
+        string afterText = GetActiveDocumentText();
+        string[] beforeLines = _beforeText.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
+        string[] afterLines = afterText.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
+        int pasteLength = (afterLines.Length - beforeLines.Length) + _numSelectedLines;
+        TextSelection sel = (TextSelection)_DTE.ActiveDocument.Selection;
+        var editPoint = sel.ActivePoint.CreateEditPoint();
+        bool underMacro = false;
+        string lastWhiteSpace = "";
+        bool openedUndoContext = false;
+        int startPasteLine = sel.ActivePoint.Line - pasteLength;
+        int macroLineNum = startPasteLine + 1;
+        // Search up the document from the start of our paste until we find a line with text on it
+        // so we can then determine if this line contains a macro we care about
+        while (--macroLineNum &gt;= 1) {
+            string macroLine = editPoint.GetLines(macroLineNum, macroLineNum + 1);
+            if (!Regex.IsMatch(macroLine, @"\S+")) {
+                continue;
+            }
+            var macroMatch = Regex.Match(macroLine, MACRO_REGEX);
+            if (macroMatch.Success) {
+                underMacro = true;
+                lastWhiteSpace = macroMatch.Groups["leading_whitespace"].ToString();
+            }
+            break;
+        }
+
+        if (!_DTE.UndoContext.IsOpen) {
+            openedUndoContext = true;
+            // Open the UndoContext so all of our changes can be undone with a single undo
+            _DTE.UndoContext.Open("FixUE4MacroIndents", false);
+        }
+        try {
+            for (int onLine = startPasteLine; onLine &lt; afterLines.Length; onLine++) {
+                var line = afterLines[onLine];
+                // We only need to potentially fix the newly pasted lines
+                if (onLine &gt;= startPasteLine + pasteLength) {
+                    sel.GotoLine(onLine, false);
+                    sel.MoveToPoint(editPoint);
+                    break;
+                }
+                if (underMacro) {
+                    var varMatch = Regex.Match(line, TEXT_WITH_WS_REGEX);
+                    if (varMatch.Success &amp;&amp; varMatch.Groups["leading_whitespace"].ToString() != lastWhiteSpace) {
+                        sel.GotoLine(onLine + 1, false);
+                        sel.DeleteWhitespace(EnvDTE.vsWhitespaceOptions.vsWhitespaceOptionsHorizontal);
+                        sel.Insert(lastWhiteSpace);
+                        underMacro = false;
+                        // This line has been modified, so change it for the MACRO_REGEX matching below
+                        line = lastWhiteSpace + line.Trim();
+                    }
+                }
+                // Its important to check if the current line is a macro
+                // even if we just fixed the spacing of the current line
+                var macroMatch = Regex.Match(line, MACRO_REGEX);
+                if (macroMatch.Success) {
+                    underMacro = true;
+                    lastWhiteSpace = macroMatch.Groups["leading_whitespace"].ToString();
+                } else if (Regex.Match(line, @"\S+").Success) {
+                    underMacro = false;
+                }
+            }
+        } finally {
+            if (openedUndoContext) {
+                _DTE.UndoContext.Close();
+            }
+        }
+    }
+
+    private void AfterKeyPress(string key, TextSelection sel, bool completion) {
+        // Only semicolons or carriage returns should cause an indentation that need to be fixed
+        if (key != ";" &amp;&amp; key != "\r") {
+            return;
+        }
+        // Make sure we're using smart indent
+        EnvDTE.Properties textEditorC = _DTE.get_Properties("TextEditor", "C/C++");
+        if ((int)textEditorC.Item("IndentStyle").Value != 2) {
+            return;
+        }
+        if (key == ";") {
+            // Make sure we're auto-formatting on semicolons
+            EnvDTE.Properties textEditorCSpecific = _DTE.get_Properties("TextEditor", "C/C++ Specific");
+            if (!(bool)textEditorCSpecific.Item("AutoFormatOnSemicolon").Value) {
+                return;
+            }
+        }
+
+        var doc = _DTE.ActiveDocument;
+        var editPoint = sel.ActivePoint.CreateEditPoint();
+        string macroLine = null;
+        var macroLineNum = sel.ActivePoint.Line;
+        // Search up the document from our current line until we find a line with text on it
+        // so we can then determine if this line contains a macro we care about
+        var found = false;
+        while (--macroLineNum &gt;= 1) {
+            macroLine = editPoint.GetLines(macroLineNum, macroLineNum + 1);
+            if (!Regex.IsMatch(macroLine, @"\S+")) {
+                continue;
+            }
+            found = true;
+            break;
+        }
+        if (!found) {
+            return;
+        }
+        var macroMatch = Regex.Match(macroLine, MACRO_REGEX);
+        if (macroMatch.Success) {
+            // Goto and select our current line, can't do this in a single GotoLine call for some reason
+            sel.GotoLine(sel.ActivePoint.Line, false);
+            sel.SelectLine();
+            if (Regex.IsMatch(sel.Text, @"\S+")) {
+                // If the line below the macro has text, undo the indent it just did
+                doc.Undo();
+            } else {
+                // If the line below the macro is empty, add matching whitespace to the beginning of this line to match it up with the macro
+                sel.MoveToPoint(editPoint);
+                sel.DeleteWhitespace(EnvDTE.vsWhitespaceOptions.vsWhitespaceOptionsHorizontal);
+                sel.Insert(macroMatch.Groups["leading_whitespace"].ToString());
+            }
+        }
+    }
+}</code>
+      <referencedAssemblies>
+        <string>Microsoft.VisualStudio.Shell.Framework</string>
+      </referencedAssemblies>
+      <type>Extension</type>
+      <lang>CS</lang>
+      <langVersion>v4.0</langVersion>
+      <enabled>true</enabled>
+      <includeDebugInformation>false</includeDebugInformation>
+    </Snippet>
+  </extensions>
+  <commonCode />
+</SerializableSnippets>
